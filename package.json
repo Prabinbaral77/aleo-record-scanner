@@ -1,0 +1,39 @@
+{
+  "name": "aleo-record-scanner",
+  "version": "1.0.0",
+  "description": "A config-driven Aleo blockchain scanner that surfaces encrypted records from program transitions",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "aleo",
+    "blockchain",
+    "scanner",
+    "record",
+    "privacy",
+    "zk"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@provablehq/wasm": "^0.7.0",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
