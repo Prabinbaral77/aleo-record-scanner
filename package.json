@@ -23,7 +23,19 @@
     "privacy",
     "zk"
   ],
-  "author": "",
+  "author": {
+    "name": "Prabin Baral",
+    "email": "prabin.baral00@gmail.com",
+    "url": "https://github.com/Prabinbaral77"
+  },
+  "homepage": "https://github.com/Prabinbaral77/aleo-record-scanner#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Prabinbaral77/aleo-record-scanner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Prabinbaral77/aleo-record-scanner/issues"
+  },
   "license": "MIT",
   "dependencies": {
     "@provablehq/wasm": "^0.7.0",
