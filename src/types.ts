@@ -28,14 +28,33 @@ export interface ScannerConfig {
 
   /** Milliseconds to wait between consecutive batch fetches; defaults to 300 */
   delayBetweenBatches?: number;
+
+  /**
+   * When true, encrypted records are decrypted using `viewKey` before being
+   * emitted.  Requires `viewKey` to be set.
+   */
+  decrypt?: boolean;
+
+  /**
+   * Aleo view key used to decrypt records.  Required when `decrypt` is true.
+   * Example: "AViewKey1..."
+   */
+  viewKey?: string;
 }
 
 /**
- * A record found during scanning that is owned by the configured view key.
+ * A record found during scanning. All encrypted output records from a single
+ * transition are grouped together in one `FoundRecord`.
  */
 export interface FoundRecord {
-  /** The encrypted record ciphertext string as returned by the API */
-  encryptedRecord: string;
+  /** All encrypted record ciphertext strings produced by this transition */
+  encryptedRecords: string[];
+
+  /**
+   * Decrypted plaintext records corresponding to `encryptedRecords`.
+   * Only populated when `decrypt: true` and a `viewKey` is provided in config.
+   */
+  decryptedRecords?: Record<string, unknown>[];
 
   /** Transaction ID that contains this record */
   txHash: string;

@@ -1,4 +1,6 @@
 import axios, { AxiosError } from 'axios';
+import { readFile } from 'fs/promises';
+import { fileURLToPath } from 'url';
 
 // ---------------------------------------------------------------------------
 // sleep
@@ -93,94 +95,31 @@ export async function fetchWithRetry<T = unknown>(
 // ensureWasm
 // ---------------------------------------------------------------------------
 
-// Cache the initialised WASM module so we only load it once.
-let wasmModule: typeof import('@provablehq/wasm') | null = null;
-let wasmInitPromise: Promise<typeof import('@provablehq/wasm')> | null = null;
+// ---------------------------------------------------------------------------
+// ensureWasm
+// ---------------------------------------------------------------------------
+
+let wasmReady = false;
 
 /**
- * Lazily loads and initialises the `@provablehq/wasm` module.
+ * Lazily loads the `@provablehq/wasm` module.
  *
- * The Provable WASM package sometimes tries to resolve assets over the
- * `file:` protocol when running in Node.js.  If the global `fetch` is
- * undefined (Node < 18) or does not handle `file:` URLs the initialisation
- * will fail.  This helper patches `globalThis.fetch` to fall back to a
- * Node.js `fs`-based implementation for `file:` URLs.
- *
- * @returns The initialised `@provablehq/wasm` module.
+ * Patches `globalThis.fetch` once to handle `file:` protocol URLs so the WASM
+ * binary can be read from disk in Node.js (native fetch does not support
+ * file: URLs). All non-file requests are forwarded to the original fetch.
  */
 export async function ensureWasm(): Promise<typeof import('@provablehq/wasm')> {
-  if (wasmModule !== null) {
-    return wasmModule;
+  if (!wasmReady) {
+    const _fetch = globalThis.fetch;
+    globalThis.fetch = async (input: any, init?: any): Promise<Response> => {
+      const url = input instanceof URL ? input : new URL(String(input));
+      if (url.protocol === 'file:') {
+        const buf = await readFile(fileURLToPath(url));
+        return new Response(buf, { headers: { 'Content-Type': 'application/wasm' } });
+      }
+      return _fetch(input, init);
+    };
+    wasmReady = true;
   }
-
-  if (wasmInitPromise !== null) {
-    return wasmInitPromise;
-  }
-
-  wasmInitPromise = (async () => {
-    // Patch globalThis.fetch so that file: URLs work in Node.js environments
-    // that lack native fetch support for local files.
-    patchFetchForFileUrls();
-
-    // Dynamic import so the heavy WASM bundle is only loaded on first use.
-    const wasm = await import('@provablehq/wasm');
-
-    // Some builds expose a default init function; call it when present.
-    if (typeof (wasm as unknown as { default?: () => Promise<void> }).default === 'function') {
-      await (wasm as unknown as { default: () => Promise<void> }).default();
-    }
-
-    wasmModule = wasm;
-    return wasm;
-  })();
-
-  return wasmInitPromise;
-}
-
-/**
- * Installs a global fetch shim that handles `file:` protocol URLs using the
- * Node.js `fs` module.  Only the subset of the Fetch API surface required by
- * the WASM loader is implemented.
- *
- * This is a no-op when `globalThis.fetch` already handles `file:` URLs or
- * when `globalThis.fetch` already exists and appears to be a fully-capable
- * implementation (i.e. not the Node built-in which rejects file: URLs).
- */
-function patchFetchForFileUrls(): void {
-  const originalFetch = globalThis.fetch?.bind(globalThis);
-
-  // Use a broad parameter type that avoids DOM-only types (RequestInfo is not
-  // available under lib: ES2020) while still accepting every value the WASM
-  // loader may pass to fetch.
-  globalThis.fetch = async function patchedFetch(
-    input: string | URL | { url: string },
-    init?: RequestInit,
-  ): Promise<Response> {
-    const urlString =
-      typeof input === 'string'
-        ? input
-        : input instanceof URL
-        ? input.href
-        : (input as { url: string }).url;
-
-    if (urlString.startsWith('file:')) {
-      // Resolve the file URL to a local path and read it with fs.
-      const { fileURLToPath } = await import('url');
-      const { readFile } = await import('fs/promises');
-      const filePath = fileURLToPath(urlString);
-      const buffer = await readFile(filePath);
-      const uint8 = new Uint8Array(buffer);
-
-      return new Response(uint8, {
-        status: 200,
-        headers: { 'Content-Type': 'application/wasm' },
-      });
-    }
-
-    if (originalFetch) {
-      return originalFetch(input as Parameters<typeof originalFetch>[0], init);
-    }
-
-    throw new Error(`No fetch implementation available for URL: ${urlString}`);
-  };
+  return import('@provablehq/wasm');
 }

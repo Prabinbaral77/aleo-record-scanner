@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { fetchWithRetry, sleep } from './utils';
+import { fetchWithRetry, sleep, ensureWasm } from './utils';
 import type {
   ScannerConfig,
   FoundRecord,
@@ -89,6 +89,8 @@ export class RecordScanner extends EventEmitter {
   private readonly baseUrl: string;
   private readonly maxRetries: number;
   private readonly delayBetweenBatches: number;
+  private readonly decrypt: boolean;
+  private readonly viewKey: string | undefined;
 
   // -- runtime state ---------------------------------------------------------
   /** The next block height the scanner will process. */
@@ -111,6 +113,8 @@ export class RecordScanner extends EventEmitter {
     this.batchAmount = config.batchAmount;
     this.maxRetries = config.maxRetries ?? 5;
     this.delayBetweenBatches = config.delayBetweenBatches ?? 300;
+    this.decrypt = config.decrypt ?? false;
+    this.viewKey = config.viewKey;
 
     const network = config.network ?? 'testnet';
     this.baseUrl =
@@ -302,21 +306,37 @@ export class RecordScanner extends EventEmitter {
 
         const outputs = transition.outputs ?? [];
 
-        for (const output of outputs) {
-          if (output.type !== 'record') continue;
-          if (!output.value) continue;
+        const encryptedRecords = outputs
+          .filter((o) => o.type === 'record' && !!o.value)
+          .map((o) => o.value as string);
 
-          const record: FoundRecord = {
-            encryptedRecord: output.value,
-            txHash,
-            programId: transition.program,
-            functionName: transition.function,
-            blockHeight,
-          };
+        if (encryptedRecords.length === 0) continue;
 
-          this.emit('record', record);
-          onRecord?.(1);
+        let decryptedRecords: Record<string, unknown>[] | undefined;
+
+        if (this.decrypt && this.viewKey) {
+          decryptedRecords = [];
+          for (const enc of encryptedRecords) {
+            try {
+              decryptedRecords.push(await this.decryptRecord(enc));
+            } catch (err) {
+              this.emitError(`Failed to decrypt record in tx ${txHash}`, err);
+              decryptedRecords.push({});
+            }
+          }
         }
+
+        const record: FoundRecord = {
+          encryptedRecords,
+          ...(decryptedRecords !== undefined && { decryptedRecords }),
+          txHash,
+          programId: transition.program,
+          functionName: transition.function,
+          blockHeight,
+        };
+
+        this.emit('record', record);
+        onRecord?.(encryptedRecords.length);
       }
     }
   }
@@ -365,6 +385,24 @@ export class RecordScanner extends EventEmitter {
    */
   private extractBlockHeight(block: AleoBlock): number {
     return block.header?.metadata?.height ?? 0;
+  }
+
+  /**
+   * Decrypts a single encrypted Aleo record ciphertext using the configured
+   * view key.  BigInt values are serialised to strings for JSON compatibility.
+   */
+  private async decryptRecord(encryptedRecord: string): Promise<Record<string, unknown>> {
+    try {
+      const { ViewKey, RecordCiphertext } = await ensureWasm();
+      const viewKey = ViewKey.from_string(this.viewKey!);
+      const plaintext = RecordCiphertext.fromString(encryptedRecord).decrypt(viewKey);
+      // toJsObject() returns u128/u64 values as BigInt which JSON.stringify cannot serialize.
+      return JSON.parse(
+        JSON.stringify(plaintext.toJsObject(), (_, v) => (typeof v === 'bigint' ? v.toString() : v)),
+      ) as Record<string, unknown>;
+    } catch (error: any) {
+      throw new Error(`Failed to decrypt Aleo record: ${error?.message ?? String(error)}`);
+    }
   }
 
   /**
