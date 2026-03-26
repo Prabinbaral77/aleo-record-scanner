@@ -1,3 +1,3 @@
-export { RecordScanner } from './scanner';
-export type { RecordScannerEvents } from './scanner';
-export type { ScannerConfig, FoundRecord, ScannerProgress } from './types';
+export { RecordScanner } from './scanner.js';
+export type { RecordScannerEvents } from './scanner.js';
+export type { ScannerConfig, FoundRecord, ScannerProgress } from './types.js';

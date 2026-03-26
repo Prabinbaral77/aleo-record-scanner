@@ -1,11 +1,11 @@
 import { EventEmitter } from 'events';
-import { fetchWithRetry, sleep, ensureWasm } from './utils';
+import { fetchWithRetry, sleep, ensureWasm } from './utils.js';
 import type {
   ScannerConfig,
   FoundRecord,
   ScannerProgress,
   AleoBlock,
-} from './types';
+} from './types.js';
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -223,8 +223,8 @@ export class RecordScanner extends EventEmitter {
         );
 
         let blocks: AleoBlock[];
-
-        log.info(`Fetching records from block ${this.currentHeight} to ${batchEnd} ⏱`);
+        log.info("=========================================================");
+        log.info(`Fetching records from block ${this.currentHeight} to ${batchEnd} ⏱️⏱️⏱️`);
         const t0 = Date.now();
 
         try {
@@ -239,7 +239,7 @@ export class RecordScanner extends EventEmitter {
         }
 
         const elapsed = Date.now() - t0;
-        log.info(`Fetched ${blocks.length} block(s) [${this.currentHeight}–${batchEnd}] in ${elapsed}ms ✔`);
+        log.info(`Fetched ${blocks.length} block(s) [${this.currentHeight}–${batchEnd}] in ${elapsed}ms ✅✅✅"`);
 
         let recordCount = 0;
         for (const block of blocks) {
@@ -252,7 +252,7 @@ export class RecordScanner extends EventEmitter {
           }
         }
 
-        log.info(`Batch ${this.currentHeight}–${batchEnd} complete — ${recordCount} record(s) emitted`);
+        log.info(`Batch ${this.currentHeight}–${batchEnd} complete — ${recordCount} record(s) emitted 🚀🚀🚀`);
 
         // Advance height regardless of whether all blocks were processed so we
         // don't get stuck re-fetching a persistently failing range.
