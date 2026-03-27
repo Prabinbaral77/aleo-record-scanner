@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { fetchWithRetry, sleep, ensureWasm } from './utils.js';
 import type {
   ScannerConfig,
+  ProgramFilter,
   FoundRecord,
   ScannerProgress,
   AleoBlock,
@@ -41,15 +42,6 @@ const log = {
 };
 
 // ---------------------------------------------------------------------------
-// Network defaults
-// ---------------------------------------------------------------------------
-
-const NETWORK_BASE_URLS: Record<string, string> = {
-  testnet: 'https://api.explorer.provable.com/v1/testnet',
-  mainnet: 'https://api.explorer.provable.com/v1/mainnet',
-};
-
-// ---------------------------------------------------------------------------
 // TypedEventEmitter helper
 // ---------------------------------------------------------------------------
 
@@ -82,8 +74,7 @@ export interface RecordScannerEvents {
  */
 export class RecordScanner extends EventEmitter {
   // -- config ----------------------------------------------------------------
-  private readonly programName: string;
-  private readonly functionName: string | undefined;
+  private readonly programs: ProgramFilter[];
   private readonly pollingInterval: number;
   private readonly batchAmount: number;
   private readonly baseUrl: string;
@@ -107,8 +98,7 @@ export class RecordScanner extends EventEmitter {
   constructor(config: ScannerConfig) {
     super();
 
-    this.programName = config.programName;
-    this.functionName = config.functionName;
+    this.programs = config.programs;
     this.pollingInterval = config.pollingInterval;
     this.batchAmount = config.batchAmount;
     this.maxRetries = config.maxRetries ?? 5;
@@ -116,11 +106,7 @@ export class RecordScanner extends EventEmitter {
     this.decrypt = config.decrypt ?? false;
     this.viewKey = config.viewKey;
 
-    const network = config.network ?? 'testnet';
-    this.baseUrl =
-      config.baseUrl?.replace(/\/$/, '') ??
-      NETWORK_BASE_URLS[network] ??
-      NETWORK_BASE_URLS['testnet'];
+    this.baseUrl = config.baseUrl.replace(/\/$/, '');
 
     // currentHeight tracks where we are; initialised from startBlockHeight so
     // that re-calling start() resumes from where we left off.
@@ -143,7 +129,10 @@ export class RecordScanner extends EventEmitter {
     this.running = true;
     this.stopped = false;
 
-    log.info(`Scanner started — program: ${this.programName}${this.functionName ? `, function: ${this.functionName}` : ''}, from block: ${this.currentHeight}`);
+    const filterSummary = this.programs
+      .map(p => `${p.programName}[${p.functionNames?.join(',') ?? '*'}]`)
+      .join(', ');
+    log.info(`Scanner started — filters: ${filterSummary}, from block: ${this.currentHeight}`);
 
     await this.scanLoop();
 
@@ -293,16 +282,7 @@ export class RecordScanner extends EventEmitter {
       const transitions = tx.execution?.transitions ?? [];
 
       for (const transition of transitions) {
-        // Filter by program name (prefix match to handle versioned program IDs)
-        if (!transition.program.startsWith(this.programName)) continue;
-
-        // Optionally filter by function name
-        if (
-          this.functionName !== undefined &&
-          transition.function !== this.functionName
-        ) {
-          continue;
-        }
+        if (!this.matchesFilter(transition.program, transition.function)) continue;
 
         const outputs = transition.outputs ?? [];
 
@@ -375,6 +355,18 @@ export class RecordScanner extends EventEmitter {
 
   // ---------------------------------------------------------------------------
   // Helpers
+
+  /**
+   * Returns true if the given program/function pair matches any of the
+   * configured `programs` filters.
+   */
+  private matchesFilter(programId: string, functionName: string): boolean {
+    return this.programs.some(filter => {
+      if (!programId.startsWith(filter.programName)) return false;
+      if (!filter.functionNames || filter.functionNames.length === 0) return true;
+      return filter.functionNames.includes(functionName);
+    });
+  }
   // ---------------------------------------------------------------------------
 
   /**

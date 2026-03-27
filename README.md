@@ -1,16 +1,15 @@
 # Aleo Record Scanner
 
-A config-driven TypeScript package for scanning the Aleo blockchain and surfacing encrypted records from program transitions. Perfect for building indexers, monitoring applications, and data pipelines on top of Aleo.
-
-> **Note:** This package surfaces **raw encrypted record ciphertexts** as found on-chain. It does **not** perform view-key verification or record decryption.
+A config-driven TypeScript package for scanning the Aleo blockchain and surfacing encrypted (and optionally decrypted) records from program transitions. Perfect for building indexers, monitoring applications, and data pipelines on top of Aleo.
 
 ## Features
 
+- **Multi-Program Filtering**: Scan multiple programs and functions in a single scanner instance
 - **Encrypted Record Surfacing**: Emits every encrypted record found in matching program transitions
+- **Optional Decryption**: Decrypt records on-the-fly using an Aleo view key
 - **Batch Processing**: Efficiently scan large block ranges with configurable batch sizes
 - **Event-Driven**: Receive real-time notifications via a typed event emitter
 - **Retry Logic**: Built-in retry with exponential backoff on transient API failures
-- **Network Flexibility**: Support for testnet and mainnet (extensible to custom networks)
 - **Type-Safe**: Full TypeScript support with comprehensive type definitions
 - **Progressive Scanning**: Resume scanning from any block height
 - **Configurable Polling**: Automatic detection of new blocks with adjustable polling intervals
@@ -33,113 +32,162 @@ npm install aleo-record-scanner
 import { RecordScanner } from 'aleo-record-scanner';
 
 const scanner = new RecordScanner({
-  programName: 'veru_private_000.aleo',
+  baseUrl: 'https://api.explorer.provable.com/v1/testnet',
+  programs: [
+    { programName: 'token_v1.aleo', functionNames: ['transfer_private'] }
+  ],
   startBlockHeight: 0,
-  pollingInterval: 5000,   // Poll every 5 seconds
-  batchAmount: 100,        // Process 100 blocks at a time
-  network: 'testnet'       // or 'mainnet'
+  pollingInterval: 5000,  // Poll every 5 seconds
+  batchAmount: 100        // Process 100 blocks at a time
 });
 
-// Listen for found records
 scanner.on('record', (record) => {
   console.log('Found record:', record);
 });
 
-// Monitor progress
 scanner.on('progress', ({ currentBlock, latestBlock }) => {
   console.log(`Progress: ${currentBlock}/${latestBlock}`);
 });
 
-// Handle errors
 scanner.on('error', (err) => {
   console.error('Scanner error:', err);
 });
 
-// Start scanning
 await scanner.start();
 ```
 
 ## Configuration
 
-Create a `ScannerConfig` object with the following properties:
-
 ### Required Properties
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `programName` | `string` | Aleo program name to filter transitions by (e.g., `"veru_private_000.aleo"`) |
+| `programs` | `ProgramFilter[]` | One or more program/function filters (see below) |
+| `baseUrl` | `string` | RPC base URL of the Aleo node to query |
 | `startBlockHeight` | `number` | Block height to start scanning from (inclusive) |
 | `pollingInterval` | `number` | Milliseconds between polls after catching up to chain tip |
 | `batchAmount` | `number` | Number of blocks to fetch per batch request |
+
+### ProgramFilter
+
+Each entry in `programs` describes one program to watch:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `programName` | `string` | Aleo program name (prefix match), e.g. `"token_v1.aleo"` |
+| `functionNames` | `string[]` | *(optional)* Function names to include. If omitted, all functions are included |
 
 ### Optional Properties
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `functionName` | `string` | `undefined` | Filter transitions by function name (e.g., `"transfer_private"`) |
-| `network` | `'testnet' \| 'mainnet'` | `'testnet'` | Network to scan |
-| `baseUrl` | `string` | Derived from `network` | Override the API base URL |
-| `maxRetries` | `number` | `5` | Maximum number of HTTP retry attempts on transient failures |
+| `maxRetries` | `number` | `5` | Maximum HTTP retry attempts on transient failures |
 | `delayBetweenBatches` | `number` | `300` | Milliseconds to wait between consecutive batch fetches |
+| `decrypt` | `boolean` | `false` | When `true`, decrypt records using `viewKey` before emitting |
+| `viewKey` | `string` | `undefined` | Aleo view key required when `decrypt` is `true` |
 
 ### Configuration Examples
 
-#### Testnet Scanner (Basic)
+#### Single Program, Single Function
 
 ```typescript
 const config = {
-  programName: 'token_v1.aleo',
+  baseUrl: 'https://api.explorer.provable.com/v1/testnet',
+  programs: [
+    { programName: 'token_v1.aleo', functionNames: ['transfer_private'] }
+  ],
   startBlockHeight: 0,
   pollingInterval: 5000,
   batchAmount: 50
-  // Uses testnet by default
 };
 ```
 
-#### Mainnet Scanner with Function Filter
+#### Multiple Programs, Multiple Functions
 
 ```typescript
 const config = {
-  programName: 'veru_private_000.aleo',
-  functionName: 'transfer_private',
+  baseUrl: 'https://api.explorer.provable.com/v1/mainnet',
+  programs: [
+    { programName: 'abc.aleo', functionNames: ['aaa', 'bbb'] },
+    { programName: 'zyx.aleo', functionNames: ['xyz'] }
+  ],
   startBlockHeight: 156000,
   pollingInterval: 10000,
   batchAmount: 100,
-  network: 'mainnet',
   maxRetries: 10,
   delayBetweenBatches: 500
 };
 ```
 
-#### Custom Network
+#### Scan All Functions of a Program
 
 ```typescript
+// Omit functionNames to match every function in the program
 const config = {
-  programName: 'my_program.aleo',
+  baseUrl: 'https://api.explorer.provable.com/v1/testnet',
+  programs: [
+    { programName: 'my_program.aleo' }
+  ],
   startBlockHeight: 0,
   pollingInterval: 3000,
-  batchAmount: 25,
-  baseUrl: 'https://custom-aleo-api.com/v1'
+  batchAmount: 25
 };
 ```
 
+#### With Record Decryption
+
+When `decrypt` is `true` and a `viewKey` is provided, every encrypted record is
+decrypted before being emitted. The `FoundRecord` will contain both
+`encryptedRecords` and `decryptedRecords`.
+
+```typescript
+const config = {
+  baseUrl: 'https://api.explorer.provable.com/v1/testnet',
+  programs: [
+    { programName: 'token_v1.aleo', functionNames: ['transfer_private'] }
+  ],
+  startBlockHeight: 0,
+  pollingInterval: 5000,
+  batchAmount: 50,
+  decrypt: true,
+  viewKey: 'AViewKey1...'  // your Aleo view key
+};
+
+const scanner = new RecordScanner(config);
+
+scanner.on('record', (record) => {
+  console.log('Encrypted:', record.encryptedRecords);
+  console.log('Decrypted:', record.decryptedRecords); // populated when decrypt: true
+});
+
+await scanner.start();
+```
+
+> **Note:** If a record cannot be decrypted with the provided view key (i.e. it
+> belongs to a different address), decryption fails silently for that record and
+> an `error` event is emitted. The scanner continues processing.
+
 ## Records
 
-### Understanding Records
-
-When the scanner finds an encrypted record in a matching transition, it emits a `record` event with a `FoundRecord` object:
+### FoundRecord Shape
 
 ```typescript
 interface FoundRecord {
-  encryptedRecord: string;  // The encrypted record ciphertext as returned by the API
-  txHash: string;           // Transaction ID containing the record
-  programId: string;        // Program ID the transition belongs to
-  functionName: string;     // Function name of the transition
-  blockHeight: number;      // Block height where the record was found
+  /** All encrypted record ciphertexts from the transition */
+  encryptedRecords: string[];
+
+  /**
+   * Decrypted plaintext records — only present when `decrypt: true`
+   * and a valid `viewKey` is configured.
+   */
+  decryptedRecords?: Record<string, unknown>[];
+
+  txHash: string;       // Transaction ID containing the record
+  programId: string;    // Program ID the transition belongs to
+  functionName: string; // Function name of the transition
+  blockHeight: number;  // Block height where the record was found
 }
 ```
-
-The `encryptedRecord` is the raw ciphertext string from the chain. Decryption (e.g. using a view key) is left to the consumer.
 
 ### Collecting Records
 
@@ -161,10 +209,7 @@ console.log(`Total records found: ${foundRecords.length}`);
 import * as fs from 'fs';
 
 scanner.on('record', (record) => {
-  fs.appendFileSync(
-    'records.jsonl',
-    JSON.stringify(record) + '\n'
-  );
+  fs.appendFileSync('records.jsonl', JSON.stringify(record) + '\n');
 });
 ```
 
@@ -178,31 +223,20 @@ scanner.on('record', (record) => {
 constructor(config: ScannerConfig)
 ```
 
-Creates a new scanner instance with the provided configuration.
-
 #### Methods
 
 ##### `async start(): Promise<void>`
 
-Starts the scanner. The returned promise resolves only when `stop()` is called; it never rejects (errors are emitted via the `"error"` event).
-
-Throws if the scanner is already running.
-
-```typescript
-const scanner = new RecordScanner(config);
-const scanTask = scanner.start();
-
-// Stop it later
-scanner.stop();
-await scanTask;
-```
+Starts the scanner. Resolves only when `stop()` is called. Never rejects — errors are emitted via the `"error"` event. Throws if the scanner is already running.
 
 ##### `stop(): void`
 
 Signals the scanner to stop after the current batch completes.
 
 ```typescript
-scanner.stop();
+const scanTask = scanner.start();
+setTimeout(() => scanner.stop(), 60_000);
+await scanTask;
 ```
 
 #### Events
@@ -222,9 +256,9 @@ scanner.on('record', (record: FoundRecord) => {
 Emitted after each batch with the current scan progress.
 
 ```typescript
-scanner.on('progress', (progress: ScannerProgress) => {
-  const pct = ((progress.currentBlock / progress.latestBlock) * 100).toFixed(2);
-  console.log(`Progress: ${pct}% (Block ${progress.currentBlock}/${progress.latestBlock})`);
+scanner.on('progress', ({ currentBlock, latestBlock }: ScannerProgress) => {
+  const pct = ((currentBlock / latestBlock) * 100).toFixed(2);
+  console.log(`Progress: ${pct}% (Block ${currentBlock}/${latestBlock})`);
 });
 ```
 
@@ -240,40 +274,39 @@ scanner.on('error', (err: Error) => {
 
 ## Usage Examples
 
-### Example 1: Simple Record Tracker
+### Example 1: Multi-Program Scanner with Decryption
 
 ```typescript
 import { RecordScanner } from 'aleo-record-scanner';
 
-async function trackRecords() {
-  const scanner = new RecordScanner({
-    programName: 'token.aleo',
-    startBlockHeight: 100000,
-    pollingInterval: 5000,
-    batchAmount: 50,
-    network: 'mainnet'
-  });
+const scanner = new RecordScanner({
+  baseUrl: 'https://api.explorer.provable.com/v1/mainnet',
+  programs: [
+    { programName: 'abc.aleo', functionNames: ['aaa', 'bbb'] },
+    { programName: 'zyx.aleo', functionNames: ['xyz'] }
+  ],
+  startBlockHeight: 100000,
+  pollingInterval: 5000,
+  batchAmount: 50,
+  decrypt: true,
+  viewKey: 'AViewKey1...'
+});
 
-  let recordCount = 0;
+scanner.on('record', (record) => {
+  console.log(`[${record.programId}::${record.functionName}] tx: ${record.txHash}`);
+  console.log('  Encrypted:', record.encryptedRecords);
+  console.log('  Decrypted:', record.decryptedRecords);
+});
 
-  scanner.on('record', (record) => {
-    recordCount++;
-    console.log(`[${new Date().toISOString()}] Record #${recordCount}: ${record.txHash}`);
-  });
+scanner.on('progress', ({ currentBlock, latestBlock }) => {
+  console.log(`${currentBlock}/${latestBlock}`);
+});
 
-  scanner.on('progress', ({ currentBlock, latestBlock }) => {
-    const pct = ((currentBlock / latestBlock) * 100).toFixed(1);
-    console.log(`Progress: ${pct}% (Block ${currentBlock}/${latestBlock})`);
-  });
+scanner.on('error', (err) => {
+  console.error('Error:', err.message);
+});
 
-  scanner.on('error', (err) => {
-    console.error('Error:', err.message);
-  });
-
-  await scanner.start();
-}
-
-trackRecords().catch(console.error);
+await scanner.start();
 ```
 
 ### Example 2: Resume from Checkpoint
@@ -282,139 +315,73 @@ trackRecords().catch(console.error);
 import * as fs from 'fs';
 import { RecordScanner } from 'aleo-record-scanner';
 
-async function resumeScanning() {
-  let lastBlock = 0;
-  if (fs.existsSync('checkpoint.json')) {
-    const checkpoint = JSON.parse(fs.readFileSync('checkpoint.json', 'utf-8'));
-    lastBlock = checkpoint.blockHeight;
-    console.log(`Resuming from block ${lastBlock}`);
-  }
-
-  const scanner = new RecordScanner({
-    programName: 'myprogram.aleo',
-    startBlockHeight: lastBlock,
-    pollingInterval: 5000,
-    batchAmount: 100
-  });
-
-  scanner.on('record', (record) => {
-    console.log('Found record at block', record.blockHeight);
-  });
-
-  scanner.on('progress', ({ currentBlock }) => {
-    fs.writeFileSync(
-      'checkpoint.json',
-      JSON.stringify({ blockHeight: currentBlock }, null, 2)
-    );
-  });
-
-  scanner.on('error', (err) => {
-    console.error('Scan error:', err);
-  });
-
-  await scanner.start();
+let lastBlock = 0;
+if (fs.existsSync('checkpoint.json')) {
+  const checkpoint = JSON.parse(fs.readFileSync('checkpoint.json', 'utf-8'));
+  lastBlock = checkpoint.blockHeight;
+  console.log(`Resuming from block ${lastBlock}`);
 }
 
-resumeScanning().catch(console.error);
-```
+const scanner = new RecordScanner({
+  baseUrl: 'https://api.explorer.provable.com/v1/testnet',
+  programs: [{ programName: 'myprogram.aleo' }],
+  startBlockHeight: lastBlock,
+  pollingInterval: 5000,
+  batchAmount: 100
+});
 
-### Example 3: Multi-Program Scanner
+scanner.on('record', (record) => {
+  console.log('Found record at block', record.blockHeight);
+});
 
-```typescript
-import { RecordScanner } from 'aleo-record-scanner';
+scanner.on('progress', ({ currentBlock }) => {
+  fs.writeFileSync('checkpoint.json', JSON.stringify({ blockHeight: currentBlock }, null, 2));
+});
 
-class MultiProgramScanner {
-  private scanners: RecordScanner[] = [];
+scanner.on('error', (err) => {
+  console.error('Scan error:', err);
+});
 
-  addProgram(programName: string) {
-    const scanner = new RecordScanner({
-      programName,
-      startBlockHeight: 0,
-      pollingInterval: 5000,
-      batchAmount: 50
-    });
-
-    scanner.on('record', (record) => {
-      console.log(`[${programName}] Record found: ${record.txHash}`);
-    });
-
-    scanner.on('error', (err) => {
-      console.error(`[${programName}] Error: ${err.message}`);
-    });
-
-    this.scanners.push(scanner);
-  }
-
-  async startAll() {
-    await Promise.all(this.scanners.map(s => s.start()));
-  }
-
-  stopAll() {
-    this.scanners.forEach(s => s.stop());
-  }
-}
-
-const multiScanner = new MultiProgramScanner();
-multiScanner.addProgram('token_v1.aleo');
-multiScanner.addProgram('nft_collection.aleo');
-await multiScanner.startAll();
+await scanner.start();
 ```
 
 ## Error Handling
 
 The scanner emits errors via the `error` event and continues scanning, making it resilient for long-running processes.
 
-### Common Errors
-
 | Error | Cause | Recovery |
 |-------|-------|----------|
 | "Failed to fetch latest block height" | Network or API issue | Retries with backoff, then re-polls |
 | "Failed to fetch blocks X–Y" | Temporary API failure | Breaks inner loop, retries the range |
-
-## Building from Source
-
-```bash
-# Install dependencies
-npm install
-
-# Build TypeScript to JavaScript
-npm run build
-
-# Rebuild on file changes
-npm run build:watch
-
-# Clean build artifacts
-npm run clean
-```
+| "Failed to decrypt record in tx …" | View key mismatch or corrupt ciphertext | Emits error, inserts `{}` placeholder, continues |
 
 ## TypeScript Support
 
-This package is fully typed and exports all public types:
+All public types are exported:
 
 ```typescript
 import {
   RecordScanner,
   RecordScannerEvents,
   ScannerConfig,
+  ProgramFilter,
   FoundRecord,
   ScannerProgress
 } from 'aleo-record-scanner';
 ```
 
-## Dependencies
+## Building from Source
 
-- **axios** (^1.6.0): HTTP client for Aleo REST API requests
+```bash
+npm install
+npm run build
+npm run build:watch  # rebuild on file changes
+npm run clean
+```
 
 ## License
 
 MIT © [Prabin Baral](https://prabinbaral.com.np)
-
-## Contributing
-
-Contributions are welcome! Please ensure:
-- Code is TypeScript with proper type safety
-- All public APIs are documented
-- No breaking changes without discussion
 
 ## Support
 

@@ -1,6 +1,6 @@
 {
   "name": "aleo-record-scanner",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A config-driven Aleo blockchain scanner that surfaces encrypted records from program transitions",
   "type": "module",
   "main": "dist/index.js",

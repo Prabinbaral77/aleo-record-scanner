@@ -1,12 +1,39 @@
 /**
+ * Describes which program and (optionally) which function names to scan.
+ *
+ * @example
+ * // Scan all functions of a program
+ * { programName: 'token.aleo' }
+ *
+ * @example
+ * // Scan only specific functions
+ * { programName: 'token.aleo', functionNames: ['transfer_private', 'mint'] }
+ */
+export interface ProgramFilter {
+  /** Aleo program name (prefix match), e.g. "token_v1.aleo" */
+  programName: string;
+
+  /**
+   * Function names to include.  When omitted or empty, all functions of
+   * the program are included.
+   */
+  functionNames?: string[];
+}
+
+/**
  * Configuration for the RecordScanner.
  */
 export interface ScannerConfig {
-  /** Aleo program name to filter transitions by, e.g. "veru_private_000.aleo" */
-  programName: string;
-
-  /** Optional function name to further filter transitions, e.g. "transfer_private" */
-  functionName?: string;
+  /**
+   * One or more program/function filters.
+   *
+   * @example
+   * programs: [
+   *   { programName: 'abc.aleo', functionNames: ['aaa', 'bbb'] },
+   *   { programName: 'zyx.aleo', functionNames: ['xyz'] },
+   * ]
+   */
+  programs: ProgramFilter[];
 
   /** Block height to start scanning from (inclusive) */
   startBlockHeight: number;
@@ -17,11 +44,11 @@ export interface ScannerConfig {
   /** Number of blocks to fetch per batch request */
   batchAmount: number;
 
-  /** Network to scan; defaults to "testnet" */
-  network?: 'testnet' | 'mainnet';
-
-  /** Override the API base URL; if omitted, derived from `network` */
-  baseUrl?: string;
+  /**
+   * RPC base URL for the Aleo node to query.
+   * @example 'https://api.explorer.provable.com/v1/testnet'
+   */
+  baseUrl: string;
 
   /** Maximum number of HTTP retry attempts on transient failures; defaults to 5 */
   maxRetries?: number;
